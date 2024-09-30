@@ -53,6 +53,9 @@ cdef extern from "cronet_c.h" nogil:
     ctypedef struct Cronet_RequestFinishedInfo
     ctypedef struct Cronet_RequestFinishedInfoPtr
 
+    # Declare
+    ctypedef struct stream_engine
+
     # Declare enums
     ctypedef enum Cronet_RESULT:
         Cronet_RESULT_SUCCESS
@@ -1252,3 +1255,64 @@ cdef extern from "cronet_c.h" nogil:
     Cronet_RequestFinishedInfo_FINISHED_REASON
     Cronet_RequestFinishedInfo_finished_reason_get(
         const Cronet_RequestFinishedInfoPtr self)
+
+    ## declared from cronet_c.h
+    # Sets net::CertVerifier* raw_mock_cert_verifier for testing of Cronet_Engine.
+    # Must be called before Cronet_Engine_InitWithParams().
+    void Cronet_Engine_SetMockCertVerifierForTesting(
+            Cronet_EnginePtr engine,
+            void * raw_mock_cert_verifier)
+
+    # Returns "stream_engine" interface for bidirectional stream support for GRPC.
+    # Returned stream engine is owned by Cronet Engine and is only valid until
+    # Cronet_Engine_Shutdown().
+    stream_engine * Cronet_Engine_GetStreamEngine(
+            Cronet_EnginePtr engine)
+
+cdef extern from "bidirectional_stream_c.h" nogil:
+    # bidirectional stream
+    ctypedef struct stream_engine:
+        void * obj
+        void * annotation
+
+    ctypedef struct bidirectional_stream:
+        void * obj
+        void * annotation
+
+    ctypedef struct bidirectional_stream_header:
+        const char * key
+        const char * value
+
+    ctypedef struct bidirectional_stream_header_array:
+        size_t count
+        size_t capacity
+        bidirectional_stream_header * headers
+
+    ctypedef struct bidirectional_stream_callback:
+        void (*on_stream_ready)(bidirectional_stream * stream)
+        void (*on_response_headers_received)(bidirectional_stream * stream,
+                                             const bidirectional_stream_header_array * headers,
+                                             const char * negotiated_protocol)
+        void (*on_read_completed)(bidirectional_stream * stream, char * data, int bytes_read)
+        void (*on_write_completed)(bidirectional_stream * stream, const char * data)
+        void (*on_response_trailers_received)(bidirectional_stream * stream,
+                                              const bidirectional_stream_header_array * trailers)
+        void (*on_succeded)(bidirectional_stream * stream)
+        void (*on_failed)(bidirectional_stream * stream, int net_error)
+        void (*on_canceled)(bidirectional_stream * stream)
+
+    bidirectional_stream * bidirectional_stream_create(stream_engine * engine, void * annotation,
+                                                       bidirectional_stream_callback * callback)
+    int bidirectional_stream_destroy(bidirectional_stream * stream)
+    void bidirectional_stream_disable_auto_flush(bidirectional_stream * stream, bool disable_auto_flush)
+    void bidirectional_stream_delay_request_headers_until_flush(bidirectional_stream * stream,
+                                                                bool delay_headers_until_flush)
+    int bidirectional_stream_start(bidirectional_stream * stream, const char * url, int priority, const char * method,
+                                   const bidirectional_stream_header_array * headers, bool end_of_stream)
+    int bidirectional_stream_read(bidirectional_stream * stream, char * buffer, int capacity)
+    int bidirectional_stream_write(bidirectional_stream * stream, const char * buffer, int buffer_length,
+                                   bool end_of_stream)
+    void bidirectional_stream_flush(bidirectional_stream * stream)
+    void bidirectional_stream_cancel(bidirectional_stream * stream)
+    bool bidirectional_stream_is_done(bidirectional_stream * stream)
+
