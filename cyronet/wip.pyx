@@ -252,7 +252,7 @@ cdef void UrlRequestCallback_OnRedirectReceivedFunc(
         Cronet_UrlRequestCallback * self,
         Cronet_UrlRequest * request,
         Cronet_UrlResponseInfo * info,
-        Cronet_String new_location_url) with gil:
+        Cronet_String new_location_url) noexcept with gil:
     cdef:
         RequestContext * ctx = <RequestContext *> Cronet_UrlRequest_GetClientContext(request)
         const char * url = Cronet_UrlResponseInfo_url_get(info)
@@ -284,7 +284,7 @@ cdef void UrlRequestCallback_OnRedirectReceivedFunc(
 cdef void UrlRequestCallback_OnResponseStartedFunc(
         Cronet_UrlRequestCallback * self,
         Cronet_UrlRequest * request,
-        Cronet_UrlResponseInfo * info) with gil:
+        Cronet_UrlResponseInfo * info) noexcept with gil:
     cdef:
         RequestContext * ctx = <RequestContext *> Cronet_UrlRequest_GetClientContext(request)
         const char * url = Cronet_UrlResponseInfo_url_get(info)
@@ -312,7 +312,7 @@ cdef void UrlRequestCallback_OnReadCompletedFunc(
         Cronet_UrlRequest * request,
         Cronet_UrlResponseInfo * info,
         Cronet_Buffer * buffer,
-        uint64_t bytes_read) with gil:
+        uint64_t bytes_read) noexcept with gil:
     cdef:
         RequestContext * ctx = <RequestContext *> Cronet_UrlRequest_GetClientContext(request)
         const char * data = <const char *> Cronet_Buffer_GetData(buffer)
@@ -328,7 +328,7 @@ cdef void UrlRequestCallback_OnReadCompletedFunc(
 cdef void UrlRequestCallback_OnSucceededFunc(
         Cronet_UrlRequestCallback * self,
         Cronet_UrlRequest * request,
-        Cronet_UrlResponseInfo * info) with gil:
+        Cronet_UrlResponseInfo * info) noexcept with gil:
     cdef:
         RequestContext * ctx = <RequestContext *> Cronet_UrlRequest_GetClientContext(request)
         object pycallback = <object> ctx.pycallback # 这里就是incref， RequestContext不是Py对象，要自己处理
@@ -350,7 +350,7 @@ cdef void UrlRequestCallback_OnFailedFunc(
         Cronet_UrlRequestCallback * self,
         Cronet_UrlRequest * request,
         Cronet_UrlResponseInfo * info,
-        Cronet_Error * error) with gil:
+        Cronet_Error * error) noexcept with gil:
     cdef:
         RequestContext * ctx = <RequestContext *> Cronet_UrlRequest_GetClientContext(request)
         object pycallback = <object> ctx.pycallback
@@ -372,7 +372,7 @@ cdef void UrlRequestCallback_OnFailedFunc(
 cdef void UrlRequestCallback_OnCanceledFunc(
         Cronet_UrlRequestCallback * self,
         Cronet_UrlRequest * request,
-        Cronet_UrlResponseInfo * info) with gil:
+        Cronet_UrlResponseInfo * info) noexcept with gil:
     cdef:
         RequestContext * ctx = <RequestContext *> Cronet_UrlRequest_GetClientContext(request)
         object pycallback = <object> ctx.pycallback
