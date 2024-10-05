@@ -430,7 +430,7 @@ cdef class UploadProviderContext:
     cdef public:
         size_t upload_size
         size_t upload_bytes_read
-        const char *content
+    cdef const char *content
 
     @property
     def _content(self):
