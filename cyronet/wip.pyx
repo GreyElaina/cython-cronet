@@ -27,6 +27,7 @@ cdef struct RequestContext:
     PyObject * pycallback
     bint allow_redirects
 
+
 @cython.final
 @cython.freelist(8)
 @cython.no_gc
@@ -217,12 +218,13 @@ cdef class Engine:
     def default_user_agent(self):
         return Cronet_Engine_GetDefaultUserAgent(self._ptr)
 
-
     cpdef UrlRequest request(self, object pycallback):
         cdef UrlRequest r = UrlRequest()
         cdef UrlRequestParams params = UrlRequestParams()
         cdef object pyrequest = pycallback.request
+
         params.http_method = pyrequest.method
+
         cdef const char * key
         cdef const char * val
         cdef HttpHeader request_header
@@ -231,13 +233,16 @@ cdef class Engine:
             request_header.name = k
             request_header.value = v
             params.add_request_headers(request_header)
+
         cdef UrlRequestCallback callback = UrlRequestCallback()
         cdef RequestContext *ctx = <RequestContext*>PyMem_Malloc(sizeof(RequestContext))
         if ctx == NULL:
             raise MemoryError
+
         ctx.callback = NULL
         ctx.allow_redirects = <bint>pyrequest.allow_redirects
         ctx.pycallback = <PyObject*>pycallback
+
         if hasattr(pyrequest, "content"):
             upload_ctx = UploadProviderContext()
             upload_ctx.content = <const char*>pyrequest.content
@@ -375,9 +380,6 @@ cdef void UrlRequestCallback_OnSucceededFunc(
     except Exception as e:
         fprintf(stderr, "%s\n", PyBytes_AS_STRING(ensure_bytes(str(e))))
     finally:
-        if ctx.callback != NULL:
-            Cronet_UrlRequestCallback_Destroy(ctx.callback)
-
         PyMem_Free(ctx)
         Cronet_UrlRequest_Destroy(request)
 
@@ -398,9 +400,6 @@ cdef void UrlRequestCallback_OnFailedFunc(
     except Exception as e:
         fprintf(stderr, "%s\n", PyBytes_AS_STRING(ensure_bytes(str(e))))
     finally:
-        if ctx.callback != NULL:
-            Cronet_UrlRequestCallback_Destroy(ctx.callback)
-
         PyMem_Free(ctx)
         Cronet_UrlRequest_Destroy(request)
 
@@ -420,9 +419,6 @@ cdef void UrlRequestCallback_OnCanceledFunc(
     except Exception as e:
         fprintf(stderr, "%s\n", PyBytes_AS_STRING(ensure_bytes(str(e))))
     finally:
-        if ctx.callback != NULL:
-            Cronet_UrlRequestCallback_Destroy(ctx.callback)
-
         PyMem_Free(ctx)
         Cronet_UrlRequest_Destroy(request)
 
