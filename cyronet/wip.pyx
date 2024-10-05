@@ -1,11 +1,13 @@
 # cython: language_level=3
 # cython: cdivision=True
+from distutils.command.upload import upload
+
 from libc.stdint cimport uint8_t
 from libc.stdio cimport  stderr, fprintf
 
-from cpython.unicode cimport PyUnicode_FromString
+from cpython.unicode cimport PyUnicode_FromString, PyUnicode_AsUTF8
 from cpython.object cimport PyObject
-from cpython.bytes cimport PyBytes_AS_STRING, PyBytes_FromStringAndSize
+from cpython.bytes cimport PyBytes_AS_STRING, PyBytes_FromStringAndSize, PyBytes_GET_SIZE
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
 from cpython.pycapsule cimport PyCapsule_GetPointer, PyCapsule_New
 
@@ -215,6 +217,41 @@ cdef class Engine:
     def default_user_agent(self):
         return Cronet_Engine_GetDefaultUserAgent(self._ptr)
 
+
+    cpdef UrlRequest request(self, object pycallback):
+        cdef UrlRequest r = UrlRequest()
+        cdef UrlRequestParams params = UrlRequestParams()
+        cdef object pyrequest = pycallback.request
+        params.http_method = pyrequest.method
+        cdef const char * key
+        cdef const char * val
+        cdef HttpHeader request_header
+        for k, v in pyrequest.headers.items:
+            request_header = HttpHeader()
+            request_header.name = k
+            request_header.value = v
+            params.add_request_headers(request_header)
+        cdef UrlRequestCallback callback = UrlRequestCallback()
+        cdef RequestContext *ctx = <RequestContext*>PyMem_Malloc(sizeof(RequestContext))
+        if ctx == NULL:
+            raise MemoryError
+        ctx.callback = NULL
+        ctx.allow_redirects = <bint>pyrequest.allow_redirects
+        ctx.pycallback = <PyObject*>pycallback
+        if hasattr(pyrequest, "content"):
+            upload_ctx = UploadProviderContext()
+            upload_ctx.content = <const char*>pyrequest.content
+            upload_ctx.upload_size = PyBytes_GET_SIZE(pyrequest.content)
+            upload_ctx.upload_bytes_read = 0
+
+            data_provider = UploadDataProvider()
+            data_provider.set_client_context(upload_ctx)
+            params.upload_data_provider = data_provider
+            pass # todo 未完待续 https://github.com/lagenar/python-cronet/blob/main/src/cronet/_cronet.c#477
+
+
+
+
     # def add_request_finished_listener(self, Cronet_RequestFinishedInfoListener* listener,
     #                                   Cronet_Executor* executor):
     #     Cronet_Engine_AddRequestFinishedListener(self._ptr, listener, executor)
@@ -389,6 +426,15 @@ cdef void UrlRequestCallback_OnCanceledFunc(
         PyMem_Free(ctx)
         Cronet_UrlRequest_Destroy(request)
 
+cdef class UploadProviderContext:
+    cdef public:
+        size_t upload_size
+        size_t upload_bytes_read
+        const char *content
+
+    @property
+    def _content(self):
+        return PyBytes_FromStringAndSize(self.content, self.upload_size)
 
 @cython.final
 @cython.freelist(8)
@@ -408,7 +454,7 @@ cdef class UrlRequestCallback:
 
     def __dealloc__(self):
         if self._ptr != NULL:
-            Cronet_UrlRequestCallback_Destroy(self._ptr)
+            Cronet_UrlRequestCallback_Destroy(self._ptr) # fixme 这里在callback中释放了
             self._ptr = NULL
 
     cpdef inline object get_client_context(self):
@@ -490,14 +536,15 @@ cdef class UploadDataSink:
 @cython.no_gc
 cdef class UploadDataProvider:
     cdef Cronet_UploadDataProvider * _ptr
+    cdef UploadProviderContext ctx
 
-    # def __cinit__(self, Cronet_UploadDataProvider_GetLengthFunc GetLengthFunc,
-    #               Cronet_UploadDataProvider_ReadFunc ReadFunc,
-    #               Cronet_UploadDataProvider_RewindFunc RewindFunc,
-    #               Cronet_UploadDataProvider_CloseFunc CloseFunc):
-    #     self._ptr = Cronet_UploadDataProvider_CreateWith(GetLengthFunc, ReadFunc, RewindFunc, CloseFunc)
-    #     if self._ptr == NULL:
-    #         raise MemoryError
+    def __cinit__(self, Cronet_UploadDataProvider_GetLengthFunc GetLengthFunc,
+                  Cronet_UploadDataProvider_ReadFunc ReadFunc,
+                  Cronet_UploadDataProvider_RewindFunc RewindFunc,
+                  Cronet_UploadDataProvider_CloseFunc CloseFunc):
+        self._ptr = Cronet_UploadDataProvider_CreateWith(GetLengthFunc, ReadFunc, RewindFunc, CloseFunc)
+        if self._ptr == NULL:
+            raise MemoryError
 
     @staticmethod
     cdef inline UploadDataProvider from_ptr(Cronet_UploadDataProvider * _ptr):
@@ -513,8 +560,9 @@ cdef class UploadDataProvider:
     cpdef inline object get_client_context(self):
         return PyCapsule_New(Cronet_UploadDataProvider_GetClientContext(self._ptr), NULL, NULL)
 
-    cpdef inline set_client_context(self, object client_context):  # FIXME
-        Cronet_UploadDataProvider_SetClientContext(self._ptr, <RequestContext *> PyCapsule_GetPointer(client_context, NULL))
+    cpdef inline set_client_context(self, UploadProviderContext ctx):  # FIXME
+        self.ctx = ctx # 绑定生命周期 incref
+        Cronet_UploadDataProvider_SetClientContext(self._ptr, <void*>ctx)
 
     @property
     def length(self):
@@ -548,8 +596,8 @@ cdef class UrlRequest:
     cpdef inline object get_client_context(self):
         return PyCapsule_New(Cronet_UrlRequest_GetClientContext(self._ptr), NULL, NULL)
 
-    cpdef inline set_client_context(self, object client_context):
-        Cronet_UrlRequest_SetClientContext(self._ptr, <RequestContext *> PyCapsule_GetPointer(client_context, NULL))
+    cdef inline set_client_context(self, RequestContext * client_context): # 只对C可见
+        Cronet_UrlRequest_SetClientContext(self._ptr, client_context)
 
     def init_with_params(self, Cronet_Engine * engine, str url, Cronet_UrlRequestParams * params,
                          Cronet_UrlRequestCallback * callback, Cronet_Executor * executor):
@@ -929,10 +977,10 @@ cdef class EngineParams:
 cdef class HttpHeader:
     cdef Cronet_HttpHeader * _ptr
 
-    # def __cinit__(self):
-    #     self._ptr = Cronet_HttpHeader_Create()
-    #     if self._ptr == NULL:
-    #         raise MemoryError
+    def __cinit__(self):
+        self._ptr = Cronet_HttpHeader_Create()
+        if self._ptr == NULL:
+            raise MemoryError
 
     @staticmethod
     cdef inline HttpHeader from_ptr(Cronet_HttpHeader * _ptr):
@@ -1076,7 +1124,9 @@ cdef class UrlResponseInfo:
 @cython.freelist(8)
 @cython.no_gc
 cdef class UrlRequestParams:
-    cdef Cronet_UrlRequestParams * _ptr
+    cdef:
+        Cronet_UrlRequestParams * _ptr
+        UploadDataProvider upload_data_provider
 
     @staticmethod
     cdef inline UrlRequestParams from_ptr(Cronet_UrlRequestParams * _ptr):
@@ -1155,8 +1205,8 @@ cdef class UrlRequestParams:
         cdef bytes http_method_b = ensure_bytes(http_method)
         Cronet_UrlRequestParams_http_method_set(self._ptr, PyBytes_AS_STRING(http_method_b))
 
-    def add_request_headers(self, Cronet_HttpHeader * element):
-        Cronet_UrlRequestParams_request_headers_add(self._ptr, element)
+    cpdef add_request_headers(self, HttpHeader element):
+        Cronet_UrlRequestParams_request_headers_add(self._ptr, element._ptr)
 
     @disable_cache.setter
     def disable_cache(self, bint disable_cache):
@@ -1168,6 +1218,7 @@ cdef class UrlRequestParams:
 
     @upload_data_provider.setter
     def upload_data_provider(self, UploadDataProvider upload_data_provider):
+        self.upload_data_provider = upload_data_provider # incref
         Cronet_UrlRequestParams_upload_data_provider_set(self._ptr, upload_data_provider._ptr)
 
     @upload_data_provider_executor.setter
